@@ -12,6 +12,7 @@ using GFile = Google.Apis.Drive.v3.Data.File;
 using System.Diagnostics;
 using Google.Apis.Drive.v3.Data;
 using OfficeOpenXml;
+using System.Net.Http;
 
 class Program
 {
@@ -21,8 +22,8 @@ class Program
     static async Task<FileList> FindFiles(DriveService service, string fileName)
     {
         var listRequest = service.Files.List();
-        listRequest.Q = $"name='{fileName}'";
-        listRequest.Fields = "files(id, name)";
+        listRequest.Q = $"name='{fileName}' and trashed=false";
+        listRequest.Fields = "files(id, name, mimeType)";
         return await listRequest.ExecuteAsync();
     }
 
@@ -38,26 +39,65 @@ class Program
         { "application/vnd.ms-excel", ".xls" },
         { "application/vnd.ms-powerpoint", ".ppt" },
         { "application/msword", ".doc" },
+        { "application/vnd.google-apps.document", ".docx" }, // Google Docs
+        { "application/vnd.google-apps.spreadsheet", ".xlsx" }, // Google Sheets
+        { "application/vnd.google-apps.presentation", ".pptx" }, // Google Slides
+        { "application/vnd.google-apps.jam", ".pdf" }, // Google Jamboard
+        // Add more Google Apps mime types as needed
     };
 
     static async Task DownloadFile(DriveService service, GFile file, string downloadFolderPath, StreamWriter writer)
     {
-        var request = service.Files.Get(file.Id);
-        var gfile = await request.ExecuteAsync();
-        var stream = new System.IO.MemoryStream();
-        await request.DownloadAsync(stream);
-
-        var fileName = Regex.Replace(gfile.Name, @"[^\w\d.]", " ");
-        if (string.IsNullOrEmpty(Path.GetExtension(fileName)) && MimeTypes.TryGetValue(gfile.MimeType, out var extension))
+        var fileName = Regex.Replace(file.Name, @"[^\w\d.]", " ");
+        if (string.IsNullOrEmpty(Path.GetExtension(fileName)) && MimeTypes.TryGetValue(file.MimeType, out var extension))
         {
             fileName += extension;
         }
 
-        if (System.IO.File.Exists(Path.Combine(downloadFolderPath, fileName)))
+        var filePath = Path.Combine(downloadFolderPath, fileName);
+        if (System.IO.File.Exists(filePath))
         {
             fileName = fileName + "_1";
+            filePath = Path.Combine(downloadFolderPath, fileName);
         }
-        await System.IO.File.WriteAllBytesAsync(Path.Combine(downloadFolderPath, fileName), stream.ToArray());
+
+        if (file.MimeType.StartsWith("application/vnd.google-apps"))
+        {
+            // This is a Google file, so export it
+            string exportMime;
+            switch (file.MimeType)
+            {
+                case "application/vnd.google-apps.document":
+                    exportMime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+                    break;
+                case "application/vnd.google-apps.spreadsheet":
+                    exportMime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+                    break;
+                case "application/vnd.google-apps.presentation":
+                    exportMime = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+                    break;
+                case "application/vnd.google-apps.jam":
+                    exportMime = "application/pdf";
+                    break;
+                // Add more Google Apps mime types as needed
+                default:
+                    throw new Exception($"Don't know how to handle Google file {file.Name} of type {file.MimeType}");
+            }
+
+            var exportRequest = service.Files.Export(file.Id, exportMime);
+            using (var fileStream = new System.IO.FileStream(filePath, System.IO.FileMode.Create, System.IO.FileAccess.Write))
+            {
+                await exportRequest.DownloadAsync(fileStream);
+            }
+        }
+        else
+        {
+            // This is a non-Google file, so download it
+            var request = service.Files.Get(file.Id);
+            var stream = new System.IO.MemoryStream();
+            await request.DownloadAsync(stream);
+            await System.IO.File.WriteAllBytesAsync(filePath, stream.ToArray());
+        }
 
         Console.WriteLine($"Downloaded file: {fileName}");
         writer.WriteLine($"{fileName}: DESCARGADO ✓");
