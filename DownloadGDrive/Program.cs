@@ -17,6 +17,52 @@ class Program
     static string[] Scopes = { DriveService.Scope.Drive };
     static string ApplicationName = "Drive API .NET Quickstart";
 
+    static async Task<FileList> FindFiles(DriveService service, string fileName)
+    {
+        var listRequest = service.Files.List();
+        listRequest.Q = $"name='{fileName}'";
+        listRequest.Fields = "files(id, name)";
+        return await listRequest.ExecuteAsync();
+    }
+
+    static readonly Dictionary<string, string> MimeTypes = new Dictionary<string, string>
+    {
+        // Agregar más mapeos según sea necesario
+        { "image/jpeg", ".jpg" },
+        { "image/png", ".png" },
+        { "application/pdf", ".pdf" },
+        { "text/plain", ".txt" },
+        { "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ".xlsx" },  // Excel
+        { "application/vnd.openxmlformats-officedocument.presentationml.presentation", ".pptx" },  // PowerPoint
+        { "application/vnd.openxmlformats-officedocument.wordprocessingml.document", ".docx" },
+        { "application/vnd.ms-excel", ".xls" },  // Excel antiguo
+        { "application/vnd.ms-powerpoint", ".ppt" },  // PowerPoint antiguo
+        { "application/msword", ".doc" },  // Word antiguo// Word
+    };
+
+    static async Task DownloadFile(DriveService service, GFile file, string downloadFolderPath, StreamWriter writer)
+    {
+        var request = service.Files.Get(file.Id);
+        var gfile = await request.ExecuteAsync();
+        var stream = new System.IO.MemoryStream();
+        await request.DownloadAsync(stream);
+
+        var fileName = Regex.Replace(gfile.Name, @"[^\w\d.]", " ");
+        if (string.IsNullOrEmpty(Path.GetExtension(fileName)) && MimeTypes.TryGetValue(gfile.MimeType, out var extension))
+        {
+            fileName += extension;
+        }
+
+        if (System.IO.File.Exists(Path.Combine(downloadFolderPath, fileName)))
+        {
+            fileName = fileName + "_1";
+        }
+        await System.IO.File.WriteAllBytesAsync(Path.Combine(downloadFolderPath, fileName), stream.ToArray());
+
+        Console.WriteLine($"Downloaded file: {fileName}");
+        writer.WriteLine($"{fileName}: DESCARGADO ✓");
+    }
+
     static void Main(string[] args)
     {
         Task.Run(async () =>
@@ -50,32 +96,22 @@ class Program
                 {
                     try
                     {
-                        FilesResource.ListRequest listRequest = service.Files.List();
-                        listRequest.Q = $"name='{filename}'";
-                        listRequest.Fields = "files(id, name)";
-
-                        FileList fileList = await listRequest.ExecuteAsync();
-
+                        var fileList = await FindFiles(service, filename);
                         if (fileList.Files == null || fileList.Files.Count == 0)
                         {
-                            writer.WriteLine($"{filename}: No se encontró el archivo");
-                            continue;
+                            // Intente buscar el archivo sin la extensión
+                            var filenameWithoutExtension = Path.GetFileNameWithoutExtension(filename);
+                            fileList = await FindFiles(service, filenameWithoutExtension);
+                            if (fileList.Files == null || fileList.Files.Count == 0)
+                            {
+                                writer.WriteLine($"{filename}: No se encontró el archivo");
+                                continue;
+                            }
                         }
+
                         foreach (var file in fileList.Files)
                         {
-                            var request = service.Files.Get(file.Id);
-                            var gfile = await request.ExecuteAsync();
-                            var stream = new System.IO.MemoryStream();
-                            await request.DownloadAsync(stream);
-                            var fileName = Regex.Replace(gfile.Name, @"[^\w\d.]", " ");
-                            if (System.IO.File.Exists(Path.Combine(downloadFolderPath, fileName)))
-                            {
-                                fileName = fileName + "_1";
-                            }
-                            await System.IO.File.WriteAllBytesAsync(Path.Combine(downloadFolderPath, fileName), stream.ToArray());
-
-                            Console.WriteLine($"Downloaded file: {fileName}");
-                            writer.WriteLine($"{filename}: DESCARGADO ✓");
+                            await DownloadFile(service, file, downloadFolderPath, writer);
                         }
                     }
                     catch (Exception ex)
