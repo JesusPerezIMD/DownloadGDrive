@@ -9,6 +9,8 @@ using Google.Apis.Drive.v3;
 using Google.Apis.Services;
 using Google.Apis.Util.Store;
 using GFile = Google.Apis.Drive.v3.Data.File;
+using System.Diagnostics;
+using Google.Apis.Drive.v3.Data;
 
 class Program
 {
@@ -19,10 +21,11 @@ class Program
     {
         Task.Run(async () =>
         {
-            var urls = System.IO.File.ReadAllLines("gdrive.txt");
+            var filenames = System.IO.File.ReadAllLines("gdrive.txt");
             var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
             var downloadFolderPath = $"GoogleDrive_{timestamp}";
             Directory.CreateDirectory(downloadFolderPath);
+            var downloadLogPath = Path.Combine(downloadFolderPath, $"descargas_{timestamp}.txt");
 
             UserCredential credential;
             using (var stream = new FileStream("credentials.json", FileMode.Open, FileAccess.Read))
@@ -41,29 +44,47 @@ class Program
                 ApplicationName = ApplicationName,
             });
 
-            foreach (var url in urls)
+            using (var writer = new StreamWriter(downloadLogPath))
             {
-                try
+                foreach (var filename in filenames)
                 {
-                    var fileId = url.Split(new string[] { "/file/d/", "/view" }, StringSplitOptions.None)[1];
-                    var request = service.Files.Get(fileId);
-                    var gfile = await request.ExecuteAsync();
-                    var stream = new System.IO.MemoryStream();
-                    await request.DownloadAsync(stream);
-                    var fileName = Regex.Replace(gfile.Name, @"[^\w\d.]", " ");
-                    if (System.IO.File.Exists(Path.Combine(downloadFolderPath, fileName)))
+                    try
                     {
-                        fileName = fileName + "_1";
+                        FilesResource.ListRequest listRequest = service.Files.List();
+                        listRequest.Q = $"name='{filename}'";
+                        listRequest.Fields = "files(id, name)";
+
+                        FileList fileList = await listRequest.ExecuteAsync();
+
+                        if (fileList.Files == null || fileList.Files.Count == 0)
+                        {
+                            writer.WriteLine($"{filename}: No se encontró el archivo");
+                            continue;
+                        }
+                        foreach (var file in fileList.Files)
+                        {
+                            var request = service.Files.Get(file.Id);
+                            var gfile = await request.ExecuteAsync();
+                            var stream = new System.IO.MemoryStream();
+                            await request.DownloadAsync(stream);
+                            var fileName = Regex.Replace(gfile.Name, @"[^\w\d.]", " ");
+                            if (System.IO.File.Exists(Path.Combine(downloadFolderPath, fileName)))
+                            {
+                                fileName = fileName + "_1";
+                            }
+                            await System.IO.File.WriteAllBytesAsync(Path.Combine(downloadFolderPath, fileName), stream.ToArray());
+
+                            Console.WriteLine($"Downloaded file: {fileName}");
+                            writer.WriteLine($"{filename}: DESCARGADO ✓");
+                        }
                     }
-                    await System.IO.File.WriteAllBytesAsync(Path.Combine(downloadFolderPath, fileName), stream.ToArray());
-
-                    Console.WriteLine($"Downloaded file: {fileName}");  // Imprimir el mensaje de descarga
-
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"{filename}: Error X - {ex.Message}");
+                        writer.WriteLine($"{filename}: Error X - {ex.Message}");
+                    }
                 }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"{url}: Error - {ex.Message}");
-                }
+                Process.Start(new ProcessStartInfo(downloadLogPath) { UseShellExecute = true });
             }
         }).GetAwaiter().GetResult();
     }
