@@ -11,6 +11,7 @@ using Google.Apis.Util.Store;
 using GFile = Google.Apis.Drive.v3.Data.File;
 using System.Diagnostics;
 using Google.Apis.Drive.v3.Data;
+using OfficeOpenXml;
 
 class Program
 {
@@ -27,17 +28,16 @@ class Program
 
     static readonly Dictionary<string, string> MimeTypes = new Dictionary<string, string>
     {
-        // Agregar más mapeos según sea necesario
         { "image/jpeg", ".jpg" },
         { "image/png", ".png" },
         { "application/pdf", ".pdf" },
         { "text/plain", ".txt" },
-        { "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ".xlsx" },  // Excel
-        { "application/vnd.openxmlformats-officedocument.presentationml.presentation", ".pptx" },  // PowerPoint
+        { "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ".xlsx" },
+        { "application/vnd.openxmlformats-officedocument.presentationml.presentation", ".pptx" },
         { "application/vnd.openxmlformats-officedocument.wordprocessingml.document", ".docx" },
-        { "application/vnd.ms-excel", ".xls" },  // Excel antiguo
-        { "application/vnd.ms-powerpoint", ".ppt" },  // PowerPoint antiguo
-        { "application/msword", ".doc" },  // Word antiguo// Word
+        { "application/vnd.ms-excel", ".xls" },
+        { "application/vnd.ms-powerpoint", ".ppt" },
+        { "application/msword", ".doc" },
     };
 
     static async Task DownloadFile(DriveService service, GFile file, string downloadFolderPath, StreamWriter writer)
@@ -67,7 +67,15 @@ class Program
     {
         Task.Run(async () =>
         {
-            var filenames = System.IO.File.ReadAllLines("gdrive.txt");
+            ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
+            var package = new ExcelPackage(new FileInfo("Bitácora Archivos Drive.xlsx"));
+            var worksheet = package.Workbook.Worksheets[0]; // Assume that the data is in the first sheet
+            var filenames = new List<string>();
+            for (int row = 1; row <= worksheet.Dimension.Rows; row++)
+            {
+                filenames.Add(worksheet.Cells[row, 3].Text); // Column C
+            }
+
             var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
             var downloadFolderPath = $"GoogleDrive_{timestamp}";
             Directory.CreateDirectory(downloadFolderPath);
@@ -99,7 +107,6 @@ class Program
                         var fileList = await FindFiles(service, filename);
                         if (fileList.Files == null || fileList.Files.Count == 0)
                         {
-                            // Intente buscar el archivo sin la extensión
                             var filenameWithoutExtension = Path.GetFileNameWithoutExtension(filename);
                             fileList = await FindFiles(service, filenameWithoutExtension);
                             if (fileList.Files == null || fileList.Files.Count == 0)
