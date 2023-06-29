@@ -11,8 +11,6 @@ using Google.Apis.Util.Store;
 using GFile = Google.Apis.Drive.v3.Data.File;
 using System.Diagnostics;
 using Google.Apis.Drive.v3.Data;
-using OfficeOpenXml;
-using System.Net.Http;
 
 class Program
 {
@@ -107,15 +105,7 @@ class Program
     {
         Task.Run(async () =>
         {
-            ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
-            var package = new ExcelPackage(new FileInfo("Bitácora Archivos Drive.xlsx"));
-            var worksheet = package.Workbook.Worksheets[0]; // Assume that the data is in the first sheet
-            var filenames = new List<string>();
-            for (int row = 1; row <= worksheet.Dimension.Rows; row++)
-            {
-                filenames.Add(worksheet.Cells[row, 3].Text); // Column C
-            }
-
+            var filenames = System.IO.File.ReadAllLines("gdrive.txt");
             var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
             var downloadFolderPath = $"GoogleDrive_{timestamp}";
             Directory.CreateDirectory(downloadFolderPath);
@@ -147,13 +137,8 @@ class Program
                         var fileList = await FindFiles(service, filename);
                         if (fileList.Files == null || fileList.Files.Count == 0)
                         {
-                            var filenameWithoutExtension = Path.GetFileNameWithoutExtension(filename);
-                            fileList = await FindFiles(service, filenameWithoutExtension);
-                            if (fileList.Files == null || fileList.Files.Count == 0)
-                            {
-                                writer.WriteLine($"{filename}: No se encontró el archivo");
-                                continue;
-                            }
+                            writer.WriteLine($"{filename}: No se encontró el archivo");
+                            continue;
                         }
 
                         foreach (var file in fileList.Files)
