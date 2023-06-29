@@ -47,15 +47,17 @@ class Program
     static async Task DownloadFile(DriveService service, GFile file, string downloadFolderPath, StreamWriter writer)
     {
         var fileName = Regex.Replace(file.Name, @"[^\w\d.]", " ");
-        if (string.IsNullOrEmpty(Path.GetExtension(fileName)) && MimeTypes.TryGetValue(file.MimeType, out var extension))
+        var extension = Path.GetExtension(fileName);
+
+        if (string.IsNullOrEmpty(extension) && MimeTypes.TryGetValue(file.MimeType, out var mimeExtension))
         {
-            fileName += extension;
+            fileName += mimeExtension;
         }
 
         var filePath = Path.Combine(downloadFolderPath, fileName);
         if (System.IO.File.Exists(filePath))
         {
-            fileName = fileName + "_1";
+            fileName = Path.GetFileNameWithoutExtension(fileName) + "_1" + extension;
             filePath = Path.Combine(downloadFolderPath, fileName);
         }
 
@@ -137,8 +139,14 @@ class Program
                         var fileList = await FindFiles(service, filename);
                         if (fileList.Files == null || fileList.Files.Count == 0)
                         {
-                            writer.WriteLine($"{filename}: No se encontró el archivo");
-                            continue;
+                            // Try searching for the file without the extension
+                            var filenameWithoutExtension = Path.GetFileNameWithoutExtension(filename);
+                            fileList = await FindFiles(service, filenameWithoutExtension);
+                            if (fileList.Files == null || fileList.Files.Count == 0)
+                            {
+                                writer.WriteLine($"{filename}: No se encontró el archivo");
+                                continue;
+                            }
                         }
 
                         foreach (var file in fileList.Files)
@@ -157,3 +165,4 @@ class Program
         }).GetAwaiter().GetResult();
     }
 }
+
