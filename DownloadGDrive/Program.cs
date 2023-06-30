@@ -11,6 +11,7 @@ using Google.Apis.Util.Store;
 using GFile = Google.Apis.Drive.v3.Data.File;
 using System.Diagnostics;
 using Google.Apis.Drive.v3.Data;
+using System.Linq;
 
 class Program
 {
@@ -19,8 +20,10 @@ class Program
 
     static async Task<FileList> FindFiles(DriveService service, string fileName)
     {
+        string pattern = @"\.[^.]{0,4}$";
+        string fileNameWithoutExtension = Regex.Replace(fileName, pattern, "");
         var listRequest = service.Files.List();
-        listRequest.Q = $"name='{fileName}' and trashed=false";
+        listRequest.Q = $"(name='{fileName}' or name='{fileNameWithoutExtension}') and trashed=false and mimeType != 'application/vnd.google-apps.folder'";
         listRequest.Fields = "files(id, name, mimeType)";
         return await listRequest.ExecuteAsync();
     }
@@ -63,6 +66,12 @@ class Program
 
         if (file.MimeType.StartsWith("application/vnd.google-apps"))
         {
+            if (file.MimeType == "application/vnd.google-apps.folder")
+            {
+                writer.WriteLine($"{file.Name}: Warning ∆ - Es una Carpeta");
+                return;
+            }
+
             // This is a Google file, so export it
             string exportMime;
             switch (file.MimeType)
